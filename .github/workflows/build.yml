@@ -25,12 +25,10 @@ jobs:
             unzip -o "$ZIP_FILE" -d extracted_project
           fi
 
-      - name: Install and Force Gradle 8.4
-        run: |
-          # تحميل وتثبيت نسخة Gradle 8.4 يدوياً في الخادم لضمان عدم استدعاء الإصدار 9
-          wget -q https://gradle.org
-          sudo unzip -q gradle-8.4-bin.zip -d /opt
-          echo "/opt/gradle-8.4/bin" >> $GITHUB_PATH
+      - name: Setup Explicit Gradle 8.4
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4' # إجبار الخادم رسمياً على تهيئة إصدار 8.4 وتخطي الإصدار 9 تلقائياً
 
       - name: Prepare Android Project Configuration
         run: |
@@ -45,8 +43,6 @@ jobs:
 
       - name: Build APK with Clean Gradle 8.4
         run: |
-          # تفعيل المسار الجديد وبدء التجميع بالإصدار المتوافق
-          export PATH="/opt/gradle-8.4/bin:$PATH"
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
