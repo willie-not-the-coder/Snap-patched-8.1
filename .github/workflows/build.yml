@@ -32,7 +32,6 @@ jobs:
 
       - name: Auto-Fix XML Strings and Product Attributes (Universal XML Tool)
         run: |
-          # سكريبت بايثون متطور لتنظيف ملفات strings.xml وإزالة وسم product المتسبب في الخطأ
           python3 -c "
           import os, re
           import xml.etree.ElementTree as ET
@@ -42,19 +41,14 @@ jobs:
                   if file == 'strings.xml':
                       file_path = os.path.join(root, file)
                       try:
-                          # قراءة محتوى الملف معالجة الأخطاء الشائعة في الرموز
                           with open(file_path, 'r', encoding='utf-8') as f:
                               xml_data = f.read()
                           
-                          # تنظيف الرموز التي قد تفسد الـ XML Parser مثل علامات & غير المفسرة
                           xml_data = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', xml_data)
-                          
-                          # وضع المحتوى داخل وسمResources موحد إذا كان تالفاً
                           if not xml_data.strip().startswith('<resources>'):
                               xml_data = '<resources>\n' + xml_data + '\n</resources>'
                           
                           root_xml = ET.fromstring(xml_data)
-                          
                           seen_keys = set()
                           elements_to_remove = []
                           
@@ -63,12 +57,8 @@ jobs:
                               if not name_attr:
                                   elements_to_remove.append(child)
                                   continue
-                              
-                              # إزالة خاصية product المتسببة في خطأ (no default product defined) لجعل النص عاماً
                               if 'product' in child.attrib:
                                   del child.attrib['product']
-                              
-                              # إزالة التكرارات بشكل آمن تماماً
                               if name_attr in seen_keys:
                                   elements_to_remove.append(child)
                               else:
@@ -77,18 +67,14 @@ jobs:
                           for elem in elements_to_remove:
                               root_xml.remove(elem)
                           
-                          # حفظ الملف بعد التطهير الهيكلي الكامل
                           ET.indent(root_xml, space='    ', level=0)
                           with open(file_path, 'w', encoding='utf-8') as f:
                               f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
-                              
                       except Exception as e:
-                          # إذا كان الملف قديماً وتالفاً جداً برمجياً، نقوم بتنظيفه نصياً كخيار احتياطي آمن
                           try:
                               with open(file_path, 'r', encoding='utf-8') as f:
                                   content = f.read()
-                              content = re.sub(r'product=\"[^\"]+\"', '', content) # مسح الوسم نصياً
-                              # تنظيف التكرارات نصياً بأسلوب محافظ
+                              content = re.sub(r'product=\"[^\"]+\"', '', content)
                               seen = set()
                               lines = content.splitlines()
                               final_lines = []
@@ -104,30 +90,39 @@ jobs:
                               print(f'Error processing {file_path}: {inner_e}')
           "
 
-      - name: Clean Layout Framework IDs
+      - name: Clean Layout Framework IDs and Stub Missing Resources
         run: |
-          python3 -c "
-          import os
-          for root, dirs, files in os.walk('extracted_project'):
-              for file in files:
-                  if file == 'preference.xml':
-                      file_path = os.path.join(root, file)
-                      with open(file_path, 'r', encoding='utf-8') as f:
-                          data = f.read()
-                      
-                      data = data.replace('android:id=\"@android:id/icon\"', 'android:id=\"@+id/icon\"')
-                      data = data.replace('android:id=\"@android:id/title\"', 'android:id=\"@+id/title\"')
-                      data = data.replace('android:id=\"@android:id/summary\"', 'android:id=\"@+id/summary\"')
-                      data = data.replace('android:id=\"@android:id/widget_frame\"', 'android:id=\"@+id/widget_frame\"')
-                      
-                      data = data.replace('android:id=\"@+android:id/icon\"', 'android:id=\"@+id/icon\"')
-                      data = data.replace('android:id=\"@+android:id/title\"', 'android:id=\"@+id/title\"')
-                      data = data.replace('android:id=\"@+android:id/summary\"', 'android:id=\"@+id/summary\"')
-                      data = data.replace('android:id=\"@+android:id/widget_frame\"', 'android:id=\"@+id/widget_frame\"')
-                      
-                      with open(file_path, 'w', encoding='utf-8') as f:
-                          f.write(data)
-          "
+          cd extracted_project
+          TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
+          cd "$TARGET_DIR"
+
+          # 1. إصلاح ملف preference.xml الخاص بالواجهات
+          if [ -f res/layout/preference.xml ]; then
+            sed -i 's/android:id=\"@android:id\/icon\"/android:id=\"@+id\/icon\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@android:id\/title\"/android:id=\"@+id\/title\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@android:id\/summary\"/android:id=\"@+id\/summary\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@android:id\/widget_frame\"/android:id=\"@+id\/widget_frame\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@+android:id\/icon\"/android:id=\"@+id\/icon\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@+android:id\/title\"/android:id=\"@+id\/title\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@+android:id\/summary\"/android:id=\"@+id\/summary\"/g' res/layout/preference.xml
+            sed -i 's/android:id=\"@+android:id\/widget_frame\"/android:id=\"@+id\/widget_frame\"/g' res/layout/preference.xml
+          fi
+
+          # 2. حقن الموارد والنصوص المفقودة لضمان رضا مجمّع AAPT2
+          mkdir -p res/values
+          if [ -f res/values/strings.xml ]; then
+            # إدخال السلسلة النصية المفقودة quick_reader_name قبل إغلاق الوسم
+            sed -i '/<\/resources>/i \    <string name="quick_reader_name">Snap QR Reader</string>' res/values/strings.xml
+          else
+            echo -e "<resources>\n    <string name="quick_reader_name">Snap QR Reader</string>\n</resources>" > res/values/strings.xml
+          fi
+
+          if [ -f res/values/styles.xml ]; then
+            # إدخال ثيم AppTheme المفقود
+            sed -i '/<\/resources>/i \    <style name="AppTheme" parent="android:Theme.Material.Light.DarkActionBar" />' res/values/styles.xml
+          else
+            echo -e "<resources>\n    <style name=\"AppTheme\" parent=\"android:Theme.Material.Light.DarkActionBar\" />\n</resources>" > res/values/styles.xml
+          fi
 
       - name: Fix Manifest Package and Sync Gradle Layout
         run: |
