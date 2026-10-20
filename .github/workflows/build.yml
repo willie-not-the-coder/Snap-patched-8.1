@@ -30,7 +30,7 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Robust Python Automation (Deduplication, Layout Fix, Camera2 & Source Discovery)
+      - name: Robust Python Automation (Smart Strings Normalization, Layout Fix, Camera2 & Source Discovery)
         run: |
           python3 -c "
           import os, re
@@ -45,7 +45,7 @@ jobs:
           print(f'Working target directory: {target_dir}')
           os.chdir(target_dir)
 
-          # 1. Deduplicate strings.xml across ALL language folders
+          # 1. Smart Strings Normalization & Deduplication (Fixes AAPT2 'no default product defined' errors)
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'strings.xml':
@@ -59,67 +59,41 @@ jobs:
                               xml_data = '<resources>\n' + xml_data + '\n</resources>'
                           
                           root_xml = ET.fromstring(xml_data)
-                          seen_keys = set()
-                          elements_to_remove = []
+                          name_map = {}
                           
                           for child in list(root_xml):
                               name_attr = child.get('name')
-                              if not name_attr:
-                                  elements_to_remove.append(child)
-                                  continue
-                              if 'product' in child.attrib:
-                                  del child.attrib['product']
-                              if name_attr in seen_keys:
-                                  elements_to_remove.append(child)
-                              else:
-                                  seen_keys.add(name_attr)
-                          
-                          for elem in elements_to_remove:
-                              root_xml.remove(elem)
-                          
+                              if name_attr:
+                                  if name_attr not in name_map:
+                                      name_map[name_attr] = []
+                                  name_map[name_attr].append(child)
+
+                          for child in list(root_xml):
+                              root_xml.remove(child)
+
+                          for name_attr, elems in name_map.items():
+                              chosen = None
+                              # Prefer an element without a product attribute
+                              for el in elems:
+                                  if 'product' not in el.attrib:
+                                      chosen = el
+                                      break
+                              if chosen is None:
+                                  chosen = elems[0]
+                              
+                              # Strip product attribute to satisfy modern AAPT2 default requirements
+                              if 'product' in chosen.attrib:
+                                  del chosen.attrib['product']
+                              
+                              root_xml.append(chosen)
+
                           ET.indent(root_xml, space='    ', level=0)
                           with open(path, 'w', encoding='utf-8') as f:
                               f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
-                      except Exception:
-                          try:
-                              with open(path, 'r', encoding='utf-8') as f:
-                                  content = f.read()
-                              seen = set()
-                              lines = content.splitlines()
-                              final_lines = []
-                              for line in lines:
-                                  m = re.search(r'name=\"([^\"]+)\"', line)
-                                  if m and m.group(1) in seen:
-                                      continue
-                                  if m: seen.add(m.group(1))
-                                  final_lines.append(line)
-                              with open(path, 'w', encoding='utf-8') as f:
-                                  f.write('\n'.join(final_lines))
-                          except Exception:
-                              pass
+                      except Exception as e:
+                          print(f'Warning: failed to normalize {path}: {e}')
 
-          # 2. Fix layout XML files globally to prevent AAPT framework ID linking errors
-          for root, dirs, files in os.walk('.'):
-              if 'res/layout' in root or root.endswith('res/layout'):
-                  for file in files:
-                      if file.endswith('.xml'):
-                          path = os.path.join(root, file)
-                          try:
-                              with open(path, 'r', encoding='utf-8') as f:
-                                  content = f.read()
-                              
-                              updated = content
-                              updated = updated.replace('@android:id/', '@+id/')
-                              updated = updated.replace('@+android:id/', '@+id/')
-                              
-                              if updated != content:
-                                  with open(path, 'w', encoding='utf-8') as f:
-                                      f.write(updated)
-                                  print(f'Cleaned layout IDs in: {path}')
-                          except Exception:
-                              pass
-
-          # 3. Enable Camera API 2 in XML configurations
+          # 2. Enable Camera API 2 in XML configurations
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file.endswith('.xml'):
@@ -144,7 +118,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 4. Patch CameraActivity.java to force Camera2 selection logic
+          # 3. Patch CameraActivity.java to force Camera2 selection logic
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'CameraActivity.java':
@@ -162,7 +136,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. Dynamically discover all directories containing .java source files
+          # 4. Dynamically discover all directories containing .java source files
           java_dirs = set()
           for root, dirs, files in os.walk('.'):
               if any(f.endswith('.java') for f in files):
@@ -181,6 +155,15 @@ jobs:
           with open('/tmp/java_src_dirs.txt', 'w') as f:
               f.write(', '.join([f\"'{d}'\" for d in sorted(java_dirs)]))
           "
+
+      - name: Fix Framework IDs in Preference Layouts
+        run: |
+          cd extracted_project
+          echo "Searching for preference.xml files to normalize IDs..."
+          find . -name "preference.xml" | while read -r file; do
+            sed -i 's/@android:id\//@+id\//g' "$file"
+            sed -i 's/@+android:id\//@+id\//g' "$file"
+          done
 
       - name: Stub Missing Resources & Styles
         run: |
