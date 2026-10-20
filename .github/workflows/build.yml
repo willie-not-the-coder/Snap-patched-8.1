@@ -30,10 +30,11 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Robust Python Camera 2 Enabler & Dynamic Source Discovery
+      - name: Robust Python Camera 2 Enabler, Deduplication & Dynamic Source Discovery
         run: |
           python3 -c "
           import os, re
+          import xml.etree.ElementTree as ET
 
           target_dir = '.'
           for root, dirs, files in os.walk('extracted_project'):
@@ -44,7 +45,63 @@ jobs:
           print(f'Working target directory: {target_dir}')
           os.chdir(target_dir)
 
-          # 1. Enable Camera API 2 in XML configurations
+          # 1. Deduplicate strings.xml across ALL language folders to fix resource merger crashes
+          for root, dirs, files in os.walk('.'):
+              for file in files:
+                  if file == 'strings.xml':
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, 'r', encoding='utf-8') as f:
+                              xml_data = f.read()
+                          
+                          # Basic sanitation for malformed tags/entities
+                          xml_data = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', xml_data)
+                          if not xml_data.strip().startswith('<resources>'):
+                              xml_data = '<resources>\n' + xml_data + '\n</resources>'
+                          
+                          root_xml = ET.fromstring(xml_data)
+                          seen_keys = set()
+                          elements_to_remove = []
+                          
+                          for child in list(root_xml):
+                              name_attr = child.get('name')
+                              if not name_attr:
+                                  elements_to_remove.append(child)
+                                  continue
+                              if 'product' in child.attrib:
+                                  del child.attrib['product']
+                              if name_attr in seen_keys:
+                                  elements_to_remove.append(child)
+                              else:
+                                  seen_keys.add(name_attr)
+                          
+                          for elem in elements_to_remove:
+                              root_xml.remove(elem)
+                          
+                          ET.indent(root_xml, space='    ', level=0)
+                          with open(path, 'w', encoding='utf-8') as f:
+                              f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
+                          print(f'Successfully deduplicated: {path}')
+                      except Exception as e:
+                          print(f'Warning: standard XML parse failed for {path}, applying line fallback: {e}')
+                          try:
+                              with open(path, 'r', encoding='utf-8') as f:
+                                  content = f.read()
+                              seen = set()
+                              lines = content.splitlines()
+                              final_lines = []
+                              for line in lines:
+                                  m = re.search(r'name=\"([^\"]+)\"', line)
+                                  if m and m.group(1) in seen:
+                                      continue
+                                  if m: seen.add(m.group(1))
+                                  final_lines.append(line)
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write('\n'.join(final_lines))
+                          except Exception as inner_e:
+                              print(f'Error processing {path}: {inner_e}')
+
+          # 2. Enable Camera API 2 in XML configurations
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file.endswith('.xml'):
@@ -70,7 +127,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 2. Patch CameraActivity.java to force Camera2 and route photo/video modules
+          # 3. Patch CameraActivity.java to force Camera2 selection logic
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'CameraActivity.java':
@@ -89,7 +146,7 @@ jobs:
                       except Exception as e:
                           print(f'Error patching CameraActivity.java: {e}')
 
-          # 3. Dynamically discover all directories containing .java source files
+          # 4. Dynamically discover all directories containing .java source files
           java_dirs = set()
           for root, dirs, files in os.walk('.'):
               if any(f.endswith('.java') for f in files):
