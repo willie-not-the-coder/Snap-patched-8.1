@@ -25,26 +25,15 @@ jobs:
             unzip -o "$ZIP_FILE" -d extracted_project
           fi
 
-      - name: Apply V35 Patch
-        run: |
-          PATCH_FILE=".github/workflows/v35.patch"
-          if [ -f "$PATCH_FILE" ]; then
-            echo "Found $PATCH_FILE. Applying to extracted_project..."
-            patch -p1 -d extracted_project < "$PATCH_FILE"
-          else
-            echo "Error: v35.patch not found in .github/workflows/!"
-            exit 1
-          fi
-
       - name: Setup Explicit Gradle 8.4
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.4'
 
-      - name: Dynamic Source Discovery & Validation
+      - name: Robust Python Camera 2 Enabler & Dynamic Source Discovery
         run: |
           python3 -c "
-          import os
+          import os, re
 
           target_dir = '.'
           for root, dirs, files in os.walk('extracted_project'):
@@ -55,7 +44,52 @@ jobs:
           print(f'Working target directory: {target_dir}')
           os.chdir(target_dir)
 
-          # Automatically find all directories containing .java source files
+          # 1. Enable Camera API 2 in XML configurations
+          for root, dirs, files in os.walk('.'):
+              for file in files:
+                  if file.endswith('.xml'):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, 'r', encoding='utf-8') as f:
+                              content = f.read()
+                          
+                          updated = content
+                          updated = updated.replace(
+                              '<bool name=\"support_camera_api_v2\">false</bool>',
+                              '<bool name=\"support_camera_api_v2\">true</bool>'
+                          )
+                          updated = updated.replace(
+                              '<bool name=\"camera2_support\">false</bool>',
+                              '<bool name=\"camera2_support\">true</bool>'
+                          )
+                          
+                          if updated != content:
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write(updated)
+                              print(f'Patched XML resource: {path}')
+                      except Exception:
+                          pass
+
+          # 2. Patch CameraActivity.java to force Camera2 and route photo/video modules
+          for root, dirs, files in os.walk('.'):
+              for file in files:
+                  if file == 'CameraActivity.java':
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, 'r', encoding='utf-8') as f:
+                              content = f.read()
+                          
+                          updated = content
+                          updated = updated.replace('mCamera2enabled = false', 'mCamera2enabled = mCamera2supported')
+                          
+                          if updated != content:
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write(updated)
+                              print(f'Successfully patched CameraActivity.java at {path}')
+                      except Exception as e:
+                          print(f'Error patching CameraActivity.java: {e}')
+
+          # 3. Dynamically discover all directories containing .java source files
           java_dirs = set()
           for root, dirs, files in os.walk('.'):
               if any(f.endswith('.java') for f in files):
