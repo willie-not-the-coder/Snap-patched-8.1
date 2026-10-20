@@ -25,31 +25,33 @@ jobs:
             unzip -o "$ZIP_FILE" -d extracted_project
           fi
 
-      - name: Setup Compatible Gradle Environment
+      - name: Install and Force Gradle 8.4
+        run: |
+          # تحميل وتثبيت نسخة Gradle 8.4 يدوياً في الخادم لضمان عدم استدعاء الإصدار 9
+          wget -q https://gradle.org
+          sudo unzip -q gradle-8.4-bin.zip -d /opt
+          echo "/opt/gradle-8.4/bin" >> $GITHUB_PATH
+
+      - name: Prepare Android Project Configuration
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
           
-          # إنشاء ملفات التجميع المخصصة والمتوافقة
-          echo "Writing compatible build.gradle..."
+          echo "Writing clean build.gradle layout..."
           echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
-          
-          # توليد الـ Wrapper لإجبار الخادم على تنزيل إصدار مستقر ومتوافق 8.4
-          echo "Generating Gradle 8.4 Wrapper..."
-          gradle wrapper --gradle-version=8.4
 
-      - name: Build APK with Compatible Gradle
+      - name: Build APK with Clean Gradle 8.4
         run: |
+          # تفعيل المسار الجديد وبدء التجميع بالإصدار المتوافق
+          export PATH="/opt/gradle-8.4/bin:$PATH"
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
           
-          # تشغيل البناء باستخدام الـ Wrapper المحلي المضمن لضمان تخطي التحديثات
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          gradle assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
