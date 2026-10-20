@@ -28,7 +28,7 @@ jobs:
       - name: Setup Explicit Gradle 8.4
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.4' # إجبار الخادم رسمياً على تهيئة إصدار 8.4 وتخطي الإصدار 9 تلقائياً
+          gradle-version: '8.4'
 
       - name: Prepare Android Project Configuration
         run: |
@@ -37,7 +37,7 @@ jobs:
           cd "$TARGET_DIR"
           
           echo "Writing clean build.gradle layout..."
-          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.lineageos.snap\" // السطر المصلح لحل مشكلة الـ Namespace\n    \n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
