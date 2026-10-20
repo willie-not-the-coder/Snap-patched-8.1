@@ -1,0 +1,361 @@
+diff --git a/res/values/config.xml b/res/values/config.xml
+index 76e5242..cc07926 100644
+--- a/res/values/config.xml
++++ b/res/values/config.xml
+@@ -28,7 +28,7 @@
+          of the fullscreen pano preview. -->
+     <bool name="enable_warped_pano_preview">false</bool>
+ 
+-    <!-- V33 diagnostic: resource remains true; Java also forces Camera2 when supported. -->
++    <!-- V35 diagnostic: keep Camera2 enabled when supported; Java normalizes all regular still/video routes. -->
+     <bool name="support_camera_api_v2">true</bool>
+ 
+     <!-- Opens back camera using openLegacy() and forces api v1 -->
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index d866a88..ceed26a 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -16,7 +16,7 @@
+ 
+ <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+     <!-- The name of the Android Camera application. [CHAR LIMIT=16] -->
+-    <string name="app_name">Snap V34 API2 Test</string>
++    <string name="app_name">Snap V35 API2 Route Test</string>
+     <!-- The label for the Video Camera activity. [CHAR LIMIT=16] -->
+     <string name="video_camera_label">Camcorder</string>
+     <!-- Used to format short video duration in Details dialog. minutes:seconds e.g. 00:30 -->
+diff --git a/src/com/android/camera/CameraActivity.java b/src/com/android/camera/CameraActivity.java
+index 2d3b3df..cd1c74e 100644
+--- a/src/com/android/camera/CameraActivity.java
++++ b/src/com/android/camera/CameraActivity.java
+@@ -1489,9 +1489,9 @@ public class CameraActivity extends Activity
+     @Override
+     public void onCreate(Bundle state) {
+         super.onCreate(state);
+-        // V34: this marker must appear even if the camera provider crashes during API probing.
+-        Log.e(TAG, "KINZIE_V34_BUILD: package=" + getPackageName()
+-                + " source=V34-force-camera2-if-supported");
++        // V35: this marker must appear even if the camera provider crashes during API probing.
++        Log.e(TAG, "KINZIE_V35_BUILD: package=" + getPackageName()
++                + " source=V35-route-and-buffer-diagnostic");
+ 
+         mContext = getApplicationContext();
+ 
+@@ -1572,29 +1572,34 @@ public class CameraActivity extends Activity
+             }
+         }
+ 
+-        // V34: bracket the support query. If cameraserver dies inside the provider's
++        // V35: bracket the support query. If cameraserver dies inside the provider's
+         // getCameraInfo path, the log will show whether this call began and returned.
+-        Log.e(TAG, "KINZIE_V34_SUPPORT_QUERY_BEGIN: package=" + getPackageName());
++        Log.e(TAG, "KINZIE_V35_SUPPORT_QUERY_BEGIN: package=" + getPackageName());
+         mCamera2supported = CameraUtil.isCamera2Supported(mContext);
+         Log.d(TAG, "Camera API 2 supported: " + mCamera2supported);
+-        Log.e(TAG, "KINZIE_V34_SUPPORT_QUERY_END: supported=" + mCamera2supported);
++        Log.e(TAG, "KINZIE_V35_SUPPORT_QUERY_END: supported=" + mCamera2supported);
+ 
+         // Force the Camera2 client path whenever this device advertises Camera2.
+         // Do not allow an overlayed resource value to silently leave Snap on Camera1.
+         final boolean configuredCamera2 = mContext.getResources().getBoolean(R.bool.support_camera_api_v2);
+         mCamera2enabled = mCamera2supported;
+         Log.d(TAG, "Camera API 2 enabled: " + mCamera2enabled);
+-        Log.w(TAG, "KINZIE_V34_API_SELECT: supported=" + mCamera2supported
++        Log.w(TAG, "KINZIE_V35_API_SELECT: supported=" + mCamera2supported
+                 + " configuredResource=" + configuredCamera2
+                 + " forcedEnabled=" + mCamera2enabled
+                 + " originalModuleIndex=" + moduleIndex);
+ 
++        final int requestedModuleIndex = moduleIndex;
+         if (mCamera2enabled && (moduleIndex == ModuleSwitcher.PHOTO_MODULE_INDEX ||
+-                moduleIndex == ModuleSwitcher.VIDEO_MODULE_INDEX)) {
++                moduleIndex == ModuleSwitcher.VIDEO_MODULE_INDEX ||
++                moduleIndex == ModuleSwitcher.GCAM_MODULE_INDEX)) {
+             moduleIndex = ModuleSwitcher.CAPTURE_MODULE_INDEX;
+-            Log.w(TAG, "KINZIE_V34_MODULE_SELECT: selected=CaptureModule moduleIndex=" + moduleIndex);
++            Log.w(TAG, "KINZIE_V35_MODULE_SELECT: requested=" + requestedModuleIndex
++                    + " selected=CaptureModule moduleIndex=" + moduleIndex);
+         } else {
+-            Log.e(TAG, "KINZIE_V34_MODULE_SELECT: selected=legacy-or-other moduleIndex=" + moduleIndex
++            Log.e(TAG, "KINZIE_V35_MODULE_SELECT: requested=" + requestedModuleIndex
++                    + " selected=other moduleIndex=" + moduleIndex
++                    + " camera2Enabled=" + mCamera2enabled
+                     + " camera2Supported=" + mCamera2supported);
+         }
+ 
+@@ -1602,6 +1607,9 @@ public class CameraActivity extends Activity
+         setContentView(R.layout.camera_filmstrip);
+         mFilmStripView = (FilmStripView) findViewById(R.id.filmstrip_view);
+         setModuleFromIndex(moduleIndex);
++        Log.w(TAG, "KINZIE_V35_MODULE_ACTIVE: index=" + mCurrentModuleIndex
++                + " class=" + (mCurrentModule == null ? "null" : mCurrentModule.getClass().getName())
++                + " camera2Enabled=" + mCamera2enabled);
+ 
+         mActionBar = getActionBar();
+         mActionBar.addOnMenuVisibilityListener(this);
+@@ -2168,9 +2176,16 @@ public class CameraActivity extends Activity
+         }
+ 
+         mForceReleaseCamera = moduleIndex == ModuleSwitcher.CAPTURE_MODULE_INDEX ||
+-                (mCamera2enabled && moduleIndex == ModuleSwitcher.PHOTO_MODULE_INDEX);
++                (mCamera2enabled && (moduleIndex == ModuleSwitcher.PHOTO_MODULE_INDEX ||
++                        moduleIndex == ModuleSwitcher.VIDEO_MODULE_INDEX ||
++                        moduleIndex == ModuleSwitcher.GCAM_MODULE_INDEX));
+         if (mForceReleaseCamera) {
+-            moduleIndex = ModuleSwitcher.CAPTURE_MODULE_INDEX;
++            Log.w(TAG, "KINZIE_V35_MODULE_SWITCH: requested=" + moduleIndex
++                    + " camera2Enabled=" + mCamera2enabled
++                    + " forceCaptureModule=" + (mCamera2enabled && moduleIndex != ModuleSwitcher.CAPTURE_MODULE_INDEX));
++            if (mCamera2enabled) {
++                moduleIndex = ModuleSwitcher.CAPTURE_MODULE_INDEX;
++            }
+         }
+         if (mCurrentModuleIndex == moduleIndex) {
+             if (mCurrentModuleIndex != ModuleSwitcher.CAPTURE_MODULE_INDEX) {
+@@ -2199,6 +2214,14 @@ public class CameraActivity extends Activity
+      * index an sets it as mCurrentModule.
+      */
+     private void setModuleFromIndex(int moduleIndex) {
++        final int requestedModuleIndex = moduleIndex;
++        if (mCamera2enabled && (moduleIndex == ModuleSwitcher.PHOTO_MODULE_INDEX ||
++                moduleIndex == ModuleSwitcher.VIDEO_MODULE_INDEX ||
++                moduleIndex == ModuleSwitcher.GCAM_MODULE_INDEX)) {
++            moduleIndex = ModuleSwitcher.CAPTURE_MODULE_INDEX;
++            Log.w(TAG, "KINZIE_V35_MODULE_NORMALIZE: requested=" + requestedModuleIndex
++                    + " selected=" + moduleIndex + " class=CaptureModule");
++        }
+         mCameraPhotoModuleRootView.setVisibility(View.GONE);
+         mCameraVideoModuleRootView.setVisibility(View.GONE);
+         mCameraPanoModuleRootView.setVisibility(View.GONE);
+@@ -2237,7 +2260,7 @@ public class CameraActivity extends Activity
+                 break;
+ 
+             case ModuleSwitcher.CAPTURE_MODULE_INDEX:
+-                Log.w(TAG, "KINZIE_V34_MODULE_INIT: entering Camera2 CaptureModule");
++                Log.w(TAG, "KINZIE_V35_MODULE_INIT: entering Camera2 CaptureModule");
+                 if(mCaptureModule == null) {
+                     mCaptureModule = new CaptureModule();
+                     mCaptureModule.init(this, mCameraCaptureModuleRootView);
+@@ -2281,6 +2304,9 @@ public class CameraActivity extends Activity
+                 mCameraPhotoModuleRootView.setVisibility(View.VISIBLE);
+                 break;
+         }
++        Log.w(TAG, "KINZIE_V35_MODULE_DISPATCHED: requested=" + requestedModuleIndex
++                + " actualIndex=" + mCurrentModuleIndex
++                + " class=" + (mCurrentModule == null ? "null" : mCurrentModule.getClass().getName()));
+     }
+ 
+     /**
+diff --git a/src/com/android/camera/CaptureModule.java b/src/com/android/camera/CaptureModule.java
+index 6d07dd4..967ce62 100644
+--- a/src/com/android/camera/CaptureModule.java
++++ b/src/com/android/camera/CaptureModule.java
+@@ -1260,6 +1260,8 @@ public class CaptureModule implements CameraModule, PhotoController,
+     public void init(CameraActivity activity, View parent) {
+         mActivity = activity;
+         mRootView = parent;
++        Log.w(TAG, "KINZIE_V35_CAPTURE_INIT: package=" + activity.getPackageName()
++                + " module=" + getClass().getName());
+         mSettingsManager = SettingsManager.getInstance();
+         mSettingsManager.registerListener(this);
+         mSettingsManager.init();
+@@ -1643,7 +1645,7 @@ public class CaptureModule implements CameraModule, PhotoController,
+     }
+ 
+     private void captureStillPictureForCommon(CaptureRequest.Builder captureBuilder, int id) throws CameraAccessException{
+-        Log.w(TAG, "KINZIE_V34_CAPTURE_REQUEST: camera=" + id
++        Log.w(TAG, "KINZIE_V35_CAPTURE_REQUEST: camera=" + id
+                 + " imageFormat=" + mChosenImageFormat
+                 + " pictureSize=" + (mPictureSize == null ? "null" :
+                 mPictureSize.getWidth() + "x" + mPictureSize.getHeight())
+@@ -1672,7 +1674,7 @@ public class CaptureModule implements CameraModule, PhotoController,
+                 public void onCaptureFailed(CameraCaptureSession session,
+                                             CaptureRequest request,
+                                             CaptureFailure result) {
+-                    Log.e(TAG, "KINZIE_V34_CAPTURE_FAILED: camera=" + id
++                    Log.e(TAG, "KINZIE_V35_CAPTURE_FAILED: camera=" + id
+                             + " reason=" + result.getReason()
+                             + " frame=" + result.getFrameNumber()
+                             + " wasImageCaptured=" + result.wasImageCaptured());
+@@ -1855,6 +1857,10 @@ public class CaptureModule implements CameraModule, PhotoController,
+                                 }
+                                 Log.d(TAG, "image available for cam: " + mCamId);
+                                 Image image = reader.acquireNextImage();
++                                logV35ImageLayout("CaptureModule.ImageReader", mCamId, image);
++                                if (image == null) {
++                                    return;
++                                }
+ 
+                                 if (isMpoOn()) {
+                                     mMpoSaveHandler.obtainMessage(
+@@ -1870,7 +1876,7 @@ public class CaptureModule implements CameraModule, PhotoController,
+                                     boolean jpegSoi = bytes != null && bytes.length >= 2
+                                             && (bytes[0] & 0xff) == 0xff
+                                             && (bytes[1] & 0xff) == 0xd8;
+-                                    Log.w(TAG, "KINZIE_V34_IMAGE_DATA: camera=" + mCamId
++                                    Log.w(TAG, "KINZIE_V35_IMAGE_DATA: camera=" + mCamId
+                                             + " format=" + image.getFormat()
+                                             + " dimensions=" + image.getWidth() + "x" + image.getHeight()
+                                             + " planes=" + image.getPlanes().length
+@@ -2274,8 +2280,11 @@ public class CaptureModule implements CameraModule, PhotoController,
+ 
+     private void openCamera(int id) {
+         if (mPaused) {
++            Log.w(TAG, "KINZIE_V35_CAMERA2_OPEN_SKIPPED: id=" + id + " reason=paused");
+             return;
+         }
++        Log.w(TAG, "KINZIE_V35_CAMERA2_OPEN_REQUEST: id=" + id
++                + " package=" + (mActivity == null ? "null" : mActivity.getPackageName()));
+         Log.d(TAG, "openCamera " + id);
+         CameraManager manager;
+         try {
+@@ -4951,6 +4960,32 @@ public class CaptureModule implements CameraModule, PhotoController,
+         }
+     }
+ 
++    private void logV35ImageLayout(String route, int cameraId, Image image) {
++        if (image == null) {
++            Log.e(TAG, "KINZIE_V35_IMAGE_LAYOUT: route=" + route + " camera=" + cameraId + " image=null");
++            return;
++        }
++        StringBuilder planeLayout = new StringBuilder();
++        try {
++            Image.Plane[] planes = image.getPlanes();
++            for (int i = 0; i < planes.length; i++) {
++                if (i > 0) planeLayout.append(';');
++                planeLayout.append(i).append(':')
++                        .append("remaining=").append(planes[i].getBuffer().remaining())
++                        .append(",rowStride=").append(planes[i].getRowStride())
++                        .append(",pixelStride=").append(planes[i].getPixelStride());
++            }
++        } catch (RuntimeException e) {
++            planeLayout.append("unavailable=").append(e.getClass().getSimpleName());
++        }
++        Log.w(TAG, "KINZIE_V35_IMAGE_LAYOUT: route=" + route
++                + " camera=" + cameraId + " format=" + image.getFormat()
++                + " size=" + image.getWidth() + "x" + image.getHeight()
++                + " planes=" + planeLayout
++                + " timestamp=" + image.getTimestamp()
++                + " crop=" + image.getCropRect());
++    }
++
+     private byte[] getJpegData(Image image) {
+         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+         byte[] bytes = new byte[buffer.remaining()];
+diff --git a/src/com/android/camera/imageprocessor/PostProcessor.java b/src/com/android/camera/imageprocessor/PostProcessor.java
+index f133c66..255b0ec 100644
+--- a/src/com/android/camera/imageprocessor/PostProcessor.java
++++ b/src/com/android/camera/imageprocessor/PostProcessor.java
+@@ -250,6 +250,32 @@ public class PostProcessor{
+         }
+     }
+ 
++    private void logV35ImageLayout(String route, Image image) {
++        if (image == null) {
++            Log.e(TAG, "KINZIE_V35_POSTPROC_IMAGE: route=" + route + " image=null");
++            return;
++        }
++        StringBuilder planeLayout = new StringBuilder();
++        try {
++            Image.Plane[] planes = image.getPlanes();
++            for (int i = 0; i < planes.length; i++) {
++                if (i > 0) planeLayout.append(';');
++                planeLayout.append(i).append(':')
++                        .append("remaining=").append(planes[i].getBuffer().remaining())
++                        .append(",rowStride=").append(planes[i].getRowStride())
++                        .append(",pixelStride=").append(planes[i].getPixelStride());
++            }
++        } catch (RuntimeException e) {
++            planeLayout.append("unavailable=").append(e.getClass().getSimpleName());
++        }
++        Log.w(TAG, "KINZIE_V35_POSTPROC_IMAGE: route=" + route
++                + " format=" + image.getFormat()
++                + " size=" + image.getWidth() + "x" + image.getHeight()
++                + " planes=" + planeLayout
++                + " timestamp=" + image.getTimestamp()
++                + " crop=" + image.getCropRect());
++    }
++
+     class ImageHandlerTask implements Runnable, ImageReader.OnImageAvailableListener {
+         private ImageWrapper mImageWrapper = null;
+         private ImageReader mRawImageReader = null;
+@@ -261,6 +287,7 @@ public class PostProcessor{
+                 if(mUseZSL) {
+                     if(mController.isLongShotActive() && mPendingContinuousRequestCount > 0) {
+                         Image image = reader.acquireNextImage();
++                        logV35ImageLayout("ZSL-longshot-input", image);
+                         Image rawImage = null;
+                         if (mSaveRaw && mRawImageReader != null) {
+                             rawImage = mRawImageReader.acquireNextImage();
+@@ -277,6 +304,7 @@ public class PostProcessor{
+                     }
+                     if(mIsZSLFallOff) {
+                         Image image = reader.acquireNextImage();
++                        logV35ImageLayout("ZSL-falloff-input", image);
+                         Image rawImage = null;
+                         if (mSaveRaw && mRawImageReader != null) {
+                             rawImage = mRawImageReader.acquireNextImage();
+@@ -313,8 +341,10 @@ public class PostProcessor{
+                     }
+ 
+                     if (image == null) {
++                        Log.e(TAG, "KINZIE_V35_POSTPROC_IMAGE: route=ZSL-latest-input image=null");
+                         return;
+                     }
++                    logV35ImageLayout("ZSL-latest-input", image);
+                     if (!mMutureLock.tryAcquire()) {
+                         image.close();
+                         if (rawImage != null) {
+@@ -344,6 +374,7 @@ public class PostProcessor{
+                     Image image = reader.acquireNextImage();
+                     Image rawImage = null;
+                     if(image != null) {
++                        logV35ImageLayout("nonZSL-input", image);
+                         onImageToProcess(image);
+                         if (mSaveRaw && mRawImageReader != null) {
+                             rawImage = mRawImageReader.acquireNextImage();
+@@ -1172,6 +1203,11 @@ public class PostProcessor{
+         @Override
+         public void onImageAvailable(ImageReader reader) {
+             final Image image = reader.acquireNextImage();
++            if (image == null) {
++                Log.e(TAG, "KINZIE_V35_POSTPROC_IMAGE: route=processed-output image=null");
++                return;
++            }
++            logV35ImageLayout("processed-output", image);
+             if(DEBUG_ZSL) Log.d(TAG, "ZSL image Reprocess is done "+image.getTimestamp());
+             mSavingHander.post(new Runnable() {
+                 public void run() {
+@@ -1184,6 +1220,11 @@ public class PostProcessor{
+                     int size = image.getPlanes()[0].getBuffer().remaining();
+                     byte[] bytes = new byte[size];
+                     image.getPlanes()[0].getBuffer().get(bytes, 0, size);
++                    boolean jpegSoi = bytes.length >= 2 && (bytes[0] & 0xff) == 0xff
++                            && (bytes[1] & 0xff) == 0xd8;
++                    Log.w(TAG, "KINZIE_V35_POSTPROC_OUTPUT: route=processed-output"
++                            + " bytes=" + bytes.length + " jpegSOI=" + jpegSoi
++                            + " dimensions=" + image.getWidth() + "x" + image.getHeight());
+                     ExifInterface exif = Exif.getExif(bytes);
+                     int orientation = Exif.getOrientation(exif);
+                     if (mController.getCurrentIntentMode() != CaptureModule.INTENT_MODE_NORMAL) {
+diff --git a/version.mk b/version.mk
+index f82db97..c25c7e4 100644
+--- a/version.mk
++++ b/version.mk
+@@ -31,6 +31,7 @@
+ # we deliver true x86 code to those devices.
+ #
+ # HISTORY:
++# 2.0.005 - Kinzie V35 Camera2 route and still-image buffer diagnostics
+ # 2.0.004 - Kinzie V34 API2 path-verification diagnostic
+ # 2.0.003 - Kinzie V33 forced-Camera2 diagnostic build
+ # 2.0.001 - Factory ROM and 0-day OTA 4.4 (KK)
+@@ -40,7 +41,7 @@
+ # base_version_build must be exactly 3 digits.
+ base_version_major := 2
+ base_version_minor := 0
+-base_version_build := 004
++base_version_build := 005
+ 
+ #####################################################
+ #####################################################
