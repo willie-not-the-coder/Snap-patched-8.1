@@ -25,69 +25,53 @@ jobs:
             unzip -o "$ZIP_FILE" -d extracted_project
           fi
 
+      - name: Apply V35 Patch
+        run: |
+          if [ -f v35.patch ]; then
+            echo "Found v35.patch. Applying to extracted_project..."
+            patch -p1 -d extracted_project < v35.patch
+          else
+            echo "Error: v35.patch not found in repository root!"
+            exit 1
+          fi
+
       - name: Setup Explicit Gradle 8.4
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.4'
 
-      - name: Auto-Fix XML Strings and Product Attributes (Universal XML Tool)
+      - name: Dynamic Source Discovery & Validation
         run: |
           python3 -c "
-          import os, re
-          import xml.etree.ElementTree as ET
+          import os
 
+          target_dir = '.'
           for root, dirs, files in os.walk('extracted_project'):
-              for file in files:
-                  if file == 'strings.xml':
-                      file_path = os.path.join(root, file)
-                      try:
-                          with open(file_path, 'r', encoding='utf-8') as f:
-                              xml_data = f.read()
-                          
-                          xml_data = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', xml_data)
-                          if not xml_data.strip().startswith('<resources>'):
-                              xml_data = '<resources>\n' + xml_data + '\n</resources>'
-                          
-                          root_xml = ET.fromstring(xml_data)
-                          seen_keys = set()
-                          elements_to_remove = []
-                          
-                          for child in list(root_xml):
-                              name_attr = child.get('name')
-                              if not name_attr:
-                                  elements_to_remove.append(child)
-                                  continue
-                              if 'product' in child.attrib:
-                                  del child.attrib['product']
-                              if name_attr in seen_keys:
-                                  elements_to_remove.append(child)
-                              else:
-                                  seen_keys.add(name_attr)
-                          
-                          for elem in elements_to_remove:
-                              root_xml.remove(elem)
-                          
-                          ET.indent(root_xml, space='    ', level=0)
-                          with open(file_path, 'w', encoding='utf-8') as f:
-                              f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
-                      except Exception as e:
-                          try:
-                              with open(file_path, 'r', encoding='utf-8') as f:
-                                  content = f.read()
-                              content = re.sub(r'product=\"[^\"]+\"', '', content)
-                              seen = set()
-                              lines = content.splitlines()
-                              final_lines = []
-                              for line in lines:
-                                  m = re.search(r'name=\"([^\"]+)\"', line)
-                                  if m and m.group(1) in seen:
-                                      continue
-                                  if m: seen.add(m.group(1))
-                                  final_lines.append(line)
-                              with open(file_path, 'w', encoding='utf-8') as f:
-                                  f.write('\n'.join(final_lines))
-                          except Exception as inner_e:
-                              print(f'Error processing {file_path}: {inner_e}')
+              if 'AndroidManifest.xml' in files and 'tests' not in root:
+                  target_dir = root
+                  break
+
+          print(f'Working target directory: {target_dir}')
+          os.chdir(target_dir)
+
+          # Automatically find all directories containing .java source files
+          java_dirs = set()
+          for root, dirs, files in os.walk('.'):
+              if any(f.endswith('.java') for f in files):
+                rel_path = root.replace('\\\\', '/')
+                if rel_path.startswith('./'):
+                    rel_path = rel_path[2:]
+                if rel_path == '':
+                    rel_path = '.'
+                java_dirs.add(rel_path)
+
+          if not java_dirs:
+              java_dirs = {'src'}
+
+          print(f'Discovered Java Source Directories: {sorted(java_dirs)}')
+
+          with open('/tmp/java_src_dirs.txt', 'w') as f:
+              f.write(', '.join([f\"'{d}'\" for d in sorted(java_dirs)]))
           "
 
       - name: Clean Layout Framework IDs and Stub Missing Resources
@@ -101,10 +85,6 @@ jobs:
             sed -i 's/android:id=\"@android:id\/title\"/android:id=\"@+id\/title\"/g' res/layout/preference.xml
             sed -i 's/android:id=\"@android:id\/summary\"/android:id=\"@+id\/summary\"/g' res/layout/preference.xml
             sed -i 's/android:id=\"@android:id\/widget_frame\"/android:id=\"@+id\/widget_frame\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@+android:id\/icon\"/android:id=\"@+id\/icon\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@+android:id\/title\"/android:id=\"@+id\/title\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@+android:id\/summary\"/android:id=\"@+id\/summary\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@+android:id\/widget_frame\"/android:id=\"@+id\/widget_frame\"/g' res/layout/preference.xml
           fi
 
           mkdir -p res/values
@@ -126,63 +106,7 @@ jobs:
           mkdir -p src/android/media
           echo -e "package android.media;\nimport java.util.ArrayList;\nimport java.util.List;\npublic class EncoderCapabilities {\n    public static class VideoEncoderCap {\n        public int mCodec;\n        public int mMinBitRate; public int mMaxBitRate;\n        public int mMinFrameRate; public int mMaxFrameRate;\n        public int mMinFrameWidth; public int mMaxFrameWidth;\n        public int mMinFrameHeight; public int mMaxFrameHeight;\n    }\n    public static List<VideoEncoderCap> getVideoEncoders() { return new ArrayList<>(); }\n}" > src/android/media/EncoderCapabilities.java
 
-      - name: Enable Camera API 2 (Auto-Switch to True)
-        run: |
-          python3 -c "
-          import os, re
-          print('Scanning project files to enable Camera API 2...')
-          for root, dirs, files in os.walk('extracted_project'):
-              for file in files:
-                  if file.endswith(('.xml', '.java', '.properties')):
-                      file_path = os.path.join(root, file)
-                      try:
-                          with open(file_path, 'r', encoding='utf-8') as f:
-                              content = f.read()
-                          
-                          modified = False
-                          
-                          # 1. Match boolean tags containing camera2 and false -> true
-                          new_content = re.sub(
-                              r'(<bool\s+[^>]*name=[\"\'][^\"\']*camera2[^\"\']*[\"\'][^>]*>\s*)false(\s*</bool>)',
-                              r'\1true\2',
-                              content,
-                              flags=re.IGNORECASE
-                          )
-                          if new_content != content:
-                              content = new_content
-                              modified = True
-                          
-                          # 2. Match preference defaultValue=false where key contains camera2
-                          new_content = re.sub(
-                              r'(<[^>]+\bkey=[\"\'][^\"\']*camera2[^\"\']*[\"\'][^>]*\bandroid:defaultValue=[\"\'])false([\"\'])',
-                              r'\1true\2',
-                              content,
-                              flags=re.IGNORECASE
-                          )
-                          if new_content != content:
-                              content = new_content
-                              modified = True
-                              
-                          # 3. Match general camera2 boolean assignments in code/configs
-                          new_content = re.sub(
-                              r'(\bcamera2\w*\b\s*=\s*)false\b',
-                              r'\1true',
-                              content,
-                              flags=re.IGNORECASE
-                          )
-                          if new_content != content:
-                              content = new_content
-                              modified = True
-                              
-                          if modified:
-                              with open(file_path, 'w', encoding='utf-8') as f:
-                                  f.write(content)
-                              print(f'Successfully enabled Camera API 2 in: {file_path}')
-                      except Exception as e:
-                        pass
-          "
-
-      - name: Fix Manifest Package and Sync Gradle Layout
+      - name: Fix Manifest Package and Generate Robust Gradle Layout
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
@@ -190,8 +114,11 @@ jobs:
           
           sed -i 's/package="org.codeaurora.snapcam"//g' AndroidManifest.xml
           
+          JAVA_DIRS_STRING=$(cat /tmp/java_src_dirs.txt)
+          echo "Injecting dynamic Java source directories: [${JAVA_DIRS_STRING}]"
+
           echo "Writing clean build.gradle layout..."
-          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    tasks.withType(JavaCompile) {\n        options.failOnError = false\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}\ndependencies {\n    implementation 'com.adobe.xmp:xmpcore:6.1.11'\n    implementation 'com.android.support:support-v4:27.1.1'\n}" > build.gradle
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = [${JAVA_DIRS_STRING}]\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}\ndependencies {\n    implementation 'com.adobe.xmp:xmpcore:6.1.11'\n    implementation 'com.android.support:support-v4:27.1.1'\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
