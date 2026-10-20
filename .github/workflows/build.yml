@@ -30,14 +30,27 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Prepare Android Project Configuration
+      - name: Prepare and Clean Android Resources
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
           
+          # إصلاح ملفات الترجمة المتكررة والتالفة في الموارد (حذف السطر المتكرر لـ no_storage)
+          if [ -f res/values-ms/strings.xml ]; then
+            echo "Fixing duplicate strings in values-ms..."
+            sed -i '/name="no_storage"/,/\/string>/ { /name="no_storage"/ { h; d; }; }; /<\/resources>/ i\    <string name="no_storage">تعديل مساحة التخزين<\/string>' res/values-ms/strings.xml
+            # حل سريع وحاسم: إذا استمر التكرار، يتم إزالة السطر الثاني برمجياً
+            sed -i '0,/name="no_storage"/!{/name="no_storage"/d}' res/values-ms/strings.xml
+          fi
+          
+          if [ -f res/values-et/strings.xml ]; then
+            echo "Fixing duplicate strings in values-et..."
+            sed -i '0,/name="no_storage"/!{/name="no_storage"/d}' res/values-et/strings.xml
+          fi
+
           echo "Writing clean build.gradle layout..."
-          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.lineageos.snap\" // السطر المصلح لحل مشكلة الـ Namespace\n    \n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.lineageos.snap\"\n    \n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
