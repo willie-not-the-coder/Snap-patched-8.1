@@ -30,10 +30,11 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Robust Python Automation (Bulletproof Strings Deduplication, Camera2 & Source Discovery)
+      - name: Robust Python Automation (Advanced Strings Deduplication, Camera2 & Source Discovery)
         run: |
           python3 -c "
           import os, re
+          import xml.etree.ElementTree as ET
 
           target_dir = '.'
           for root, dirs, files in os.walk('extracted_project'):
@@ -44,38 +45,74 @@ jobs:
           print(f'Working target directory: {target_dir}')
           os.chdir(target_dir)
 
-          # 1. Bulletproof Block-Level Regex Deduplication for ALL strings.xml files
+          # 1. Advanced XML-aware deduplication for all strings.xml files (handles <string> and <item> tags)
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'strings.xml':
                       path = os.path.join(root, file)
                       try:
                           with open(path, 'r', encoding='utf-8') as f:
-                              content = f.read()
+                              xml_data = f.read()
                           
-                          # Match any resource tag block (string, plurals, item) across multiple lines
-                          entry_pattern = re.compile(r'(<(\w+)\b[^>]*\bname=[\"\']([^\"\']+)[\"\'][^>]*>(?:.*?</\2>|\s*/>)', re.DOTALL)
+                          # Sanitize unescaped ampersands and ensure root element wrapper
+                          xml_data = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', xml_data)
+                          if not xml_data.strip().startswith('<resources>'):
+                              xml_data = '<resources>\n' + xml_data + '\n</resources>'
                           
-                          seen = []
-                          def replacer(match):
-                              full_match = match.group(0)
-                              tag_name = match.group(2)
-                              res_name = match.group(3)
-                              key = (tag_name, res_name)
-                              if key in seen:
-                                  return '' # Remove duplicate entirely
-                              seen.append(key)
-                              # Strip product attribute to satisfy modern AAPT2 requirements
-                              cleaned_match = re.sub(r'\bproduct=[\"\'][^\"\']*[\"\']', '', full_match)
-                              return cleaned_match
+                          root_xml = ET.fromstring(xml_data)
+                          name_map = {}
+                          elements_to_remove = []
+                          
+                          for child in list(root_xml):
+                              name_attr = child.get('name')
+                              if not name_attr:
+                                  elements_to_remove.append(child)
+                                  continue
+                              
+                              # Track by tag type and name to prevent duplicate item/string collisions
+                              res_type = child.get('type', child.tag)
+                              identifier = (res_type, name_attr)
+                              
+                              if identifier in name_map:
+                                  elements_to_remove.append(child)
+                              else:
+                                  name_map[identifier] = child
+                              
+                              # Strip product attributes to satisfy modern AAPT2 requirements
+                              if 'product' in child.attrib:
+                                  del child.attrib['product']
 
-                          cleaned_content = entry_pattern.sub(replacer, content)
+                          for elem in elements_to_remove:
+                              root_xml.remove(elem)
                           
+                          ET.indent(root_xml, space='    ', level=0)
                           with open(path, 'w', encoding='utf-8') as f:
-                              f.write(cleaned_content)
-                          print(f'Successfully cleaned and deduplicated: {path}')
+                              f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
+                          print(f'Successfully deduplicated XML: {path}')
                       except Exception as e:
-                          print(f'Warning: failed to deduplicate {path}: {e}')
+                          print(f'Warning: XML parse failed for {path} ({e}), applying block cleaner fallback...')
+                          try:
+                              with open(path, 'r', encoding='utf-8') as f:
+                                  content = f.read()
+                              
+                              # Fallback regex block matcher to remove duplicate named tags safely
+                              pattern = re.compile(r'<([a-zA-Z0-9_-]+)\b([^>]*\bname=[\"\']([^\"\']+)[\"\'][^>]*)>(.*?)</\1>|<([a-zA-Z0-9_-]+)\b([^>]*\bname=[\"\']([^\"\']+)[\"\'][^>]*/>)', re.DOTALL)
+                              seen = set()
+                              def cleaner(match):
+                                  full = match.group(0)
+                                  tag = match.group(1) or match.group(5)
+                                  name = match.group(3) or match.group(7)
+                                  key = (tag, name)
+                                  if key in seen:
+                                      return ''
+                                  seen.add(key)
+                                  return re.sub(r'\bproduct=[\"\'][^\"\']*[\"\']', '', full)
+
+                              cleaned = pattern.sub(cleaner, content)
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write(cleaned)
+                          except Exception as inner_e:
+                              print(f'Critical error cleaning {path}: {inner_e}')
 
           # 2. Enable Camera API 2 in XML configurations
           for root, dirs, files in os.walk('.'):
