@@ -19,30 +19,27 @@ jobs:
 
       - name: Unzip and Build Project
         run: |
-          # 1. البحث عن أي ملف مضغوط في المستودع وفكه
+          # 1. البحث عن الملف المضغوط وفكه
           ZIP_FILE=$(find . -name "*.zip" | head -n 1)
           if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found, compiling standard tree..."
+            echo "No ZIP file found."
+            exit 1
           else
             echo "Found ZIP file: $ZIP_FILE. Unzipping..."
             unzip -o "$ZIP_FILE" -d extracted_project
             cd extracted_project
           fi
 
-          # 2. البحث عن المجلد الداخلي الذي يحتوي على الكود البرمجي
-          TARGET_DIR=$(find . -name "AndroidManifest.xml" -exec dirname {} \;)
-          echo "Target directory is: $TARGET_DIR"
+          # 2. تحديد المجلد الرئيسي للتطبيق (تجاهل مجلد الـ tests)
+          TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
+          echo "Target directory is determined as: $TARGET_DIR"
           cd "$TARGET_DIR"
 
-          # 3. التأكد من وجود ملفات التجميع أو إنشائها تلقائياً
-          if [ ! -f build.gradle ]; then
-            echo "Creating missing build.gradle..."
-            echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
-          fi
+          # 3. إنشاء أو إصلاح ملفات التجميع لضمان التوافق مع الخادم السحابي
+          echo "Overwriting/Creating build.gradle configuration..."
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
-          if [ ! -f settings.gradle ]; then
-            echo "rootProject.name = 'SnapCamera'" > settings.gradle
-          fi
+          echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
           # 4. بدء البناء
           gradle assembleDebug
