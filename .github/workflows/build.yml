@@ -30,51 +30,91 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Auto-Fix All Duplicate Strings (Universal Python Tool)
+      - name: Auto-Fix XML Strings and Product Attributes (Universal XML Tool)
         run: |
+          # سكريبت بايثون متطور لتنظيف ملفات strings.xml وإزالة وسم product المتسبب في الخطأ
           python3 -c "
           import os, re
+          import xml.etree.ElementTree as ET
+
           for root, dirs, files in os.walk('extracted_project'):
               for file in files:
                   if file == 'strings.xml':
                       file_path = os.path.join(root, file)
                       try:
+                          # قراءة محتوى الملف معالجة الأخطاء الشائعة في الرموز
                           with open(file_path, 'r', encoding='utf-8') as f:
-                              content = f.read()
-                          seen_names = set()
-                          cleaned_lines = []
-                          lines = content.splitlines()
-                          for line in lines:
-                              match = re.search(r'name=\"([^\"]+)\"', line)
-                              if match:
-                                  name = match.group(1)
-                                  if name in seen_names:
-                                      continue
-                                  else:
-                                      seen_names.add(name)
-                                      cleaned_lines.append(line)
+                              xml_data = f.read()
+                          
+                          # تنظيف الرموز التي قد تفسد الـ XML Parser مثل علامات & غير المفسرة
+                          xml_data = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', xml_data)
+                          
+                          # وضع المحتوى داخل وسمResources موحد إذا كان تالفاً
+                          if not xml_data.strip().startswith('<resources>'):
+                              xml_data = '<resources>\n' + xml_data + '\n</resources>'
+                          
+                          root_xml = ET.fromstring(xml_data)
+                          
+                          seen_keys = set()
+                          elements_to_remove = []
+                          
+                          for child in list(root_xml):
+                              name_attr = child.get('name')
+                              if not name_attr:
+                                  elements_to_remove.append(child)
+                                  continue
+                              
+                              # إزالة خاصية product المتسببة في خطأ (no default product defined) لجعل النص عاماً
+                              if 'product' in child.attrib:
+                                  del child.attrib['product']
+                              
+                              # إزالة التكرارات بشكل آمن تماماً
+                              if name_attr in seen_keys:
+                                  elements_to_remove.append(child)
                               else:
-                                  cleaned_lines.append(line)
+                                  seen_keys.add(name_attr)
+                          
+                          for elem in elements_to_remove:
+                              root_xml.remove(elem)
+                          
+                          # حفظ الملف بعد التطهير الهيكلي الكامل
+                          ET.indent(root_xml, space='    ', level=0)
                           with open(file_path, 'w', encoding='utf-8') as f:
-                              f.write('\n'.join(cleaned_lines))
+                              f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
+                              
                       except Exception as e:
-                          print(f'Skipped file {file_path}: {e}')
+                          # إذا كان الملف قديماً وتالفاً جداً برمجياً، نقوم بتنظيفه نصياً كخيار احتياطي آمن
+                          try:
+                              with open(file_path, 'r', encoding='utf-8') as f:
+                                  content = f.read()
+                              content = re.sub(r'product=\"[^\"]+\"', '', content) # مسح الوسم نصياً
+                              # تنظيف التكرارات نصياً بأسلوب محافظ
+                              seen = set()
+                              lines = content.splitlines()
+                              final_lines = []
+                              for line in lines:
+                                  m = re.search(r'name=\"([^\"]+)\"', line)
+                                  if m and m.group(1) in seen:
+                                      continue
+                                  if m: seen.add(m.group(1))
+                                  final_lines.append(line)
+                              with open(file_path, 'w', encoding='utf-8') as f:
+                                  f.write('\n'.join(final_lines))
+                          except Exception as inner_e:
+                              print(f'Error processing {file_path}: {inner_e}')
           "
 
-      - name: Clean Layout Framework IDs and Pre-process Code
+      - name: Clean Layout Framework IDs
         run: |
-          # أداة بايثون للبحث الشامل عن ملف preference.xml وتعديل المعرفات المرفوضة
           python3 -c "
           import os
           for root, dirs, files in os.walk('extracted_project'):
               for file in files:
                   if file == 'preference.xml':
                       file_path = os.path.join(root, file)
-                      print(f'Found layout file to patch: {file_path}')
                       with open(file_path, 'r', encoding='utf-8') as f:
                           data = f.read()
                       
-                      # استبدال المعرفات التالفة لنظام أندرويد الخارجي بمعرفات محلية عادية تتماشى مع AAPT2
                       data = data.replace('android:id=\"@android:id/icon\"', 'android:id=\"@+id/icon\"')
                       data = data.replace('android:id=\"@android:id/title\"', 'android:id=\"@+id/title\"')
                       data = data.replace('android:id=\"@android:id/summary\"', 'android:id=\"@+id/summary\"')
@@ -95,7 +135,6 @@ jobs:
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
           
-          echo "Removing package attribute from source AndroidManifest.xml..."
           sed -i 's/package="org.codeaurora.snapcam"//g' AndroidManifest.xml
           
           echo "Writing clean build.gradle layout..."
