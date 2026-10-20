@@ -30,25 +30,58 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Prepare and Clean Android Resources
+      - name: Auto-Fix All Duplicate Strings (Universal Python Tool)
+        run: |
+          # سكريبت بايثون ذكي يبحث عن كل ملفات strings.xml ويحذف التكرارات تلقائياً
+          python3 -c "
+          import os, re
+          from xml.etree import ElementTree as ET
+
+          for root, dirs, files in os.walk('extracted_project'):
+              for file in files:
+                  if file == 'strings.xml':
+                      file_path = os.path.join(root, file)
+                      try:
+                          # قراءة الملف وتنظيفه من أي رموز غير صالحة قد تعيق التحليل
+                          with open(file_path, 'r', encoding='utf-8') as f:
+                              content = f.read()
+                          
+                          # استخدام تعبيرات برمجية دقيقة للبحث عن المعرفات المتكررة (name=\"...\")
+                          seen_names = set()
+                          cleaned_lines = []
+                          
+                          # تحليل الأسطر سطر بسطر لحذف السطور المتكررة تماماً
+                          in_string_tag = False
+                          current_tag_name = None
+                          buffer = []
+                          
+                          lines = content.splitlines()
+                          for line in lines:
+                              match = re.search(r'name=\"([^\"]+)\"', line)
+                              if match:
+                                  name = match.group(1)
+                                  if name in seen_names:
+                                      # إذا كان الاسم مكرراً، نتجاهل السطر ولا نضيفه
+                                      continue
+                                  else:
+                                      seen_names.add(name)
+                                      cleaned_lines.append(line)
+                              else:
+                                  cleaned_lines.append(line)
+                                  
+                          with open(file_path, 'w', encoding='utf-8') as f:
+                              f.write('\n'.join(cleaned_lines))
+                          print(f'Successfully cleaned duplicate entries from: {file_path}')
+                      except Exception as e:
+                          print(f'Skipped file {file_path} due to error: {e}')
+          "
+
+      - name: Prepare Android Project Configuration
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
           
-          # إصلاح ملفات الترجمة المتكررة والتالفة في الموارد (حذف السطر المتكرر لـ no_storage)
-          if [ -f res/values-ms/strings.xml ]; then
-            echo "Fixing duplicate strings in values-ms..."
-            sed -i '/name="no_storage"/,/\/string>/ { /name="no_storage"/ { h; d; }; }; /<\/resources>/ i\    <string name="no_storage">تعديل مساحة التخزين<\/string>' res/values-ms/strings.xml
-            # حل سريع وحاسم: إذا استمر التكرار، يتم إزالة السطر الثاني برمجياً
-            sed -i '0,/name="no_storage"/!{/name="no_storage"/d}' res/values-ms/strings.xml
-          fi
-          
-          if [ -f res/values-et/strings.xml ]; then
-            echo "Fixing duplicate strings in values-et..."
-            sed -i '0,/name="no_storage"/!{/name="no_storage"/d}' res/values-et/strings.xml
-          fi
-
           echo "Writing clean build.gradle layout..."
           echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.lineageos.snap\"\n    \n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
