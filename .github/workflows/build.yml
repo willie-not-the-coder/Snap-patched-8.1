@@ -27,11 +27,12 @@ jobs:
 
       - name: Apply V35 Patch
         run: |
-          if [ -f v35.patch ]; then
-            echo "Found v35.patch. Applying to extracted_project..."
-            patch -p1 -d extracted_project < v35.patch
+          PATCH_FILE=".github/workflows/v35.patch"
+          if [ -f "$PATCH_FILE" ]; then
+            echo "Found $PATCH_FILE. Applying to extracted_project..."
+            patch -p1 -d extracted_project < "$PATCH_FILE"
           else
-            echo "Error: v35.patch not found in repository root!"
+            echo "Error: v35.patch not found in .github/workflows/!"
             exit 1
           fi
 
