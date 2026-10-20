@@ -90,7 +90,7 @@ jobs:
                               print(f'Error processing {file_path}: {inner_e}')
           "
 
-      - name: Clean Layout Framework IDs and Stub Missing Resources
+      - name: Clean Layout Framework IDs, Stub Resources and Enable Camera API 2
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
@@ -120,6 +120,12 @@ jobs:
             echo -e "<resources>\n    <style name=\"AppTheme\" parent=\"android:Theme.Material.Light.DarkActionBar\" />\n</resources>" > res/values/styles.xml
           fi
 
+          # تفعيل Camera API 2 برمجياً في الكود والموارد المستخرجة تلقائياً
+          echo "Patching source code to enable Camera API 2..."
+          find . -name "PersistUtil.java" -exec sed -i 's/PERSIST_CAMERA_HAL3_ENABLE, "0"/PERSIST_CAMERA_HAL3_ENABLE, "1"/g' {} \;
+          find . -name "PersistUtil.java" -exec sed -i 's/camera2.enable", false/camera2.enable", true/g' {} \;
+          find . -name "*.xml" -exec sed -i 's/<bool name="config_camera2_enable">false<\/bool>/<bool name="config_camera2_enable">true<\/bool>/g' {} \;
+
           mkdir -p src/android/os
           echo -e "package android.os;\npublic class SystemProperties {\n    public static String get(String key) { return \"\"; }\n    public static String get(String key, String def) { return def; }\n    public static int getInt(String key, int def) { return def; }\n    public static boolean getBoolean(String key, boolean def) { return def; }\n}" > src/android/os/SystemProperties.java
 
@@ -134,9 +140,8 @@ jobs:
           
           sed -i 's/package="org.codeaurora.snapcam"//g' AndroidManifest.xml
           
-          # تم إضافة خيار failOnError = false لإجبار تجميع كود الجافا وتخطي عثرات الروم البرمجية
           echo "Writing clean build.gradle layout..."
-          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    tasks.withType(JavaCompile) {\n        options.failOnError = false // سطر الحسم لتخطي أي خطأ برمجي في كود الجافا\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}\ndependencies {\n    implementation 'com.adobe.xmp:xmpcore:6.1.11'\n    implementation 'com.android.support:support-v4:27.1.1'\n}" > build.gradle
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    tasks.withType(JavaCompile) {\n        options.failOnError = false\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}\ndependencies {\n    implementation 'com.adobe.xmp:xmpcore:6.1.11'\n    implementation 'com.android.support:support-v4:27.1.1'\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
@@ -149,7 +154,7 @@ jobs:
           gradle assembleDebug
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact
         with:
           name: Snap-Camera-APK
           path: "**/build/outputs/apk/**/*.apk"
