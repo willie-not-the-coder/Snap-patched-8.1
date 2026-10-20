@@ -96,7 +96,6 @@ jobs:
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
 
-          # 1. إصلاح ملف preference.xml الخاص بالواجهات
           if [ -f res/layout/preference.xml ]; then
             sed -i 's/android:id=\"@android:id\/icon\"/android:id=\"@+id\/icon\"/g' res/layout/preference.xml
             sed -i 's/android:id=\"@android:id\/title\"/android:id=\"@+id\/title\"/g' res/layout/preference.xml
@@ -108,21 +107,26 @@ jobs:
             sed -i 's/android:id=\"@+android:id\/widget_frame\"/android:id=\"@+id\/widget_frame\"/g' res/layout/preference.xml
           fi
 
-          # 2. حقن الموارد والنصوص المفقودة لضمان رضا مجمّع AAPT2
           mkdir -p res/values
           if [ -f res/values/strings.xml ]; then
-            # إدخال السلسلة النصية المفقودة quick_reader_name قبل إغلاق الوسم
             sed -i '/<\/resources>/i \    <string name="quick_reader_name">Snap QR Reader</string>' res/values/strings.xml
           else
-            echo -e "<resources>\n    <string name="quick_reader_name">Snap QR Reader</string>\n</resources>" > res/values/strings.xml
+            echo -e "<resources>\n    <string name=\"quick_reader_name\">Snap QR Reader</string>\n</resources>" > res/values/strings.xml
           fi
 
           if [ -f res/values/styles.xml ]; then
-            # إدخال ثيم AppTheme المفقود
             sed -i '/<\/resources>/i \    <style name="AppTheme" parent="android:Theme.Material.Light.DarkActionBar" />' res/values/styles.xml
           else
             echo -e "<resources>\n    <style name=\"AppTheme\" parent=\"android:Theme.Material.Light.DarkActionBar\" />\n</resources>" > res/values/styles.xml
           fi
+
+          # إنشاء كلاس محاكاة لـ SystemProperties المفقود برمجياً لمنع انهيار مجمع الجافا
+          mkdir -p src/android/os
+          echo -e "package android.os;\npublic class SystemProperties {\n    public static String get(String key) { return \"\"; }\n    public static String get(String key, String def) { return def; }\n    public static int getInt(String key, int def) { return def; }\n    public static boolean getBoolean(String key, boolean def) { return def; }\n}" > src/android/os/SystemProperties.java
+
+          # إنشاء كلاس محاكاة لـ EncoderCapabilities المفقود برمجياً من حزم الميديا
+          mkdir -p src/android/media
+          echo -e "package android.media;\nimport java.util.ArrayList;\nimport java.util.List;\npublic class EncoderCapabilities {\n    public static class VideoEncoderCap {\n        public int mCodec;\n        public int mMinBitRate; public int mMaxBitRate;\n        public int mMinFrameRate; public int mMaxFrameRate;\n        public int mMinFrameWidth; public int mMaxFrameWidth;\n        public int mMinFrameHeight; public int mMaxFrameHeight;\n    }\n    public static List<VideoEncoderCap> getVideoEncoders() { return new ArrayList<>(); }\n}" > src/android/media/EncoderCapabilities.java
 
       - name: Fix Manifest Package and Sync Gradle Layout
         run: |
@@ -132,8 +136,9 @@ jobs:
           
           sed -i 's/package="org.codeaurora.snapcam"//g' AndroidManifest.xml
           
+          # تعديل ملف build.gradle لإضافة مكتبات Adobe XMP وحزم الدعم v4 المطلوبة
           echo "Writing clean build.gradle layout..."
-          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}\ndependencies {\n    implementation 'com.adobe.xmp:xmpcore:6.1.11'\n    implementation 'com.android.support:support-v4:27.1.1'\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
