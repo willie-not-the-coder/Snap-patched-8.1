@@ -1,20 +1,44 @@
 name: Build Snapdragon Camera
 on: [push, workflow_dispatch]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build APK with Gradle
-        run: gradle assembleDebug
+
+      - name: Locate and Build Project
+        run: |
+          # البحث عن المجلد الذي يحتوي على كود الكاميرا والملفات المرفوعة
+          TARGET_DIR=$(find . -name "AndroidManifest.xml" -exec dirname {} \;)
+          echo "Found project directory at: $TARGET_DIR"
+          
+          # الانتقال إلى المجلد وتشغيل أداة البناء
+          cd "$TARGET_DIR"
+          
+          # التأكد من وجود ملفات التجميع أو إنشائها تلقائياً إذا فُقدت
+          if [ ! -f build.gradle ]; then
+            echo "Creating missing build.gradle configuration..."
+            echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
+          fi
+          
+          if [ ! -f settings.gradle ]; then
+            echo "rootProject.name = 'SnapCamera'" > settings.gradle
+          fi
+          
+          # بدء عملية البناء الفصيلية
+          gradle assembleDebug
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
