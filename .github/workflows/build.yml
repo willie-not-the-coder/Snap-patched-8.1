@@ -61,7 +61,7 @@ jobs:
                           print(f'Skipped file {file_path}: {e}')
           "
 
-      - name: Fix Manifest Package and Sync Gradle Layout
+      - name: Fix Manifest Package and System Layout IDs
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
@@ -70,7 +70,20 @@ jobs:
           echo "Removing package attribute from source AndroidManifest.xml..."
           sed -i 's/package="org.codeaurora.snapcam"//g' AndroidManifest.xml
           
-          # تم إضافة خيار aaptOptions للسماح بالمعرفات الخارجية وتخطي أخطاء preference.xml
+          # إصلاح ملف preference.xml برمجياً عبر تحويل المعرفات المرفوضة من نظام أندرويد الخارجي إلى معرفات محلية مقبولة
+          if [ -f res/layout/preference.xml ]; then
+            echo "Fixing illegal android:id attributes in preference.xml for AAPT2..."
+            sed -i 's/android:id="@android:id\/icon"/android:id="@1id\/icon"/g' res/layout/preference.xml
+            sed -i 's/android:id="@android:id\/title"/android:id="@1id\/title"/g' res/layout/preference.xml
+            sed -i 's/android:id="@android:id\/summary"/android:id="@1id\/summary"/g' res/layout/preference.xml
+            sed -i 's/android:id="@android:id\/widget_frame"/android:id="@1id\/widget_frame"/g' res/layout/preference.xml
+            
+            sed -i 's/android:id="@\+android:id\/icon"/android:id="@\+id\/icon"/g' res/layout/preference.xml
+            sed -i 's/android:id="@\+android:id\/title"/android:id="@\+id\/title"/g' res/layout/preference.xml
+            sed -i 's/android:id="@\+android:id\/summary"/android:id="@\+id\/summary"/g' res/layout/preference.xml
+            sed -i 's/android:id="@\+android:id\/widget_frame"/android:id="@\+id\/widget_frame"/g' res/layout/preference.xml
+          fi
+          
           echo "Writing clean build.gradle layout..."
           echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
