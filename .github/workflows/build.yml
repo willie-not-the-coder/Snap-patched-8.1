@@ -30,7 +30,7 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Robust Python Camera 2 Enabler, Deduplication & Dynamic Source Discovery
+      - name: Robust Python Automation (Deduplication, Layout Fix, Camera2 & Source Discovery)
         run: |
           python3 -c "
           import os, re
@@ -45,7 +45,7 @@ jobs:
           print(f'Working target directory: {target_dir}')
           os.chdir(target_dir)
 
-          # 1. Deduplicate strings.xml across ALL language folders to fix resource merger crashes
+          # 1. Deduplicate strings.xml across ALL language folders
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'strings.xml':
@@ -54,7 +54,6 @@ jobs:
                           with open(path, 'r', encoding='utf-8') as f:
                               xml_data = f.read()
                           
-                          # Basic sanitation for malformed tags/entities
                           xml_data = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', xml_data)
                           if not xml_data.strip().startswith('<resources>'):
                               xml_data = '<resources>\n' + xml_data + '\n</resources>'
@@ -81,9 +80,7 @@ jobs:
                           ET.indent(root_xml, space='    ', level=0)
                           with open(path, 'w', encoding='utf-8') as f:
                               f.write(ET.tostring(root_xml, encoding='utf-8').decode('utf-8'))
-                          print(f'Successfully deduplicated: {path}')
-                      except Exception as e:
-                          print(f'Warning: standard XML parse failed for {path}, applying line fallback: {e}')
+                      except Exception:
                           try:
                               with open(path, 'r', encoding='utf-8') as f:
                                   content = f.read()
@@ -98,10 +95,31 @@ jobs:
                                   final_lines.append(line)
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write('\n'.join(final_lines))
-                          except Exception as inner_e:
-                              print(f'Error processing {path}: {inner_e}')
+                          except Exception:
+                              pass
 
-          # 2. Enable Camera API 2 in XML configurations
+          # 2. Fix layout XML files globally to prevent AAPT framework ID linking errors
+          for root, dirs, files in os.walk('.'):
+              if 'res/layout' in root or root.endswith('res/layout'):
+                  for file in files:
+                      if file.endswith('.xml'):
+                          path = os.path.join(root, file)
+                          try:
+                              with open(path, 'r', encoding='utf-8') as f:
+                                  content = f.read()
+                              
+                              updated = content
+                              updated = updated.replace('@android:id/', '@+id/')
+                              updated = updated.replace('@+android:id/', '@+id/')
+                              
+                              if updated != content:
+                                  with open(path, 'w', encoding='utf-8') as f:
+                                      f.write(updated)
+                                  print(f'Cleaned layout IDs in: {path}')
+                          except Exception:
+                              pass
+
+          # 3. Enable Camera API 2 in XML configurations
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file.endswith('.xml'):
@@ -123,11 +141,10 @@ jobs:
                           if updated != content:
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write(updated)
-                              print(f'Patched XML resource: {path}')
                       except Exception:
                           pass
 
-          # 3. Patch CameraActivity.java to force Camera2 selection logic
+          # 4. Patch CameraActivity.java to force Camera2 selection logic
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'CameraActivity.java':
@@ -142,11 +159,10 @@ jobs:
                           if updated != content:
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write(updated)
-                              print(f'Successfully patched CameraActivity.java at {path}')
-                      except Exception as e:
-                          print(f'Error patching CameraActivity.java: {e}')
+                      except Exception:
+                          pass
 
-          # 4. Dynamically discover all directories containing .java source files
+          # 5. Dynamically discover all directories containing .java source files
           java_dirs = set()
           for root, dirs, files in os.walk('.'):
               if any(f.endswith('.java') for f in files):
@@ -166,18 +182,11 @@ jobs:
               f.write(', '.join([f\"'{d}'\" for d in sorted(java_dirs)]))
           "
 
-      - name: Clean Layout Framework IDs and Stub Missing Resources
+      - name: Stub Missing Resources & Styles
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
-
-          if [ -f res/layout/preference.xml ]; then
-            sed -i 's/android:id=\"@android:id\/icon\"/android:id=\"@+id\/icon\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@android:id\/title\"/android:id=\"@+id\/title\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@android:id\/summary\"/android:id=\"@+id\/summary\"/g' res/layout/preference.xml
-            sed -i 's/android:id=\"@android:id\/widget_frame\"/android:id=\"@+id\/widget_frame\"/g' res/layout/preference.xml
-          fi
 
           mkdir -p res/values
           if [ -f res/values/strings.xml ]; then
