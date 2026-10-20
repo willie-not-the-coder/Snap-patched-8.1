@@ -67,13 +67,12 @@ jobs:
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
           cd "$TARGET_DIR"
           
-          # إزالة سطر الحزمة المتسبب في الخطأ من الـ Manifest تماماً تماشياً مع معايير أندرويد الحديثة
           echo "Removing package attribute from source AndroidManifest.xml..."
           sed -i 's/package="org.codeaurora.snapcam"//g' AndroidManifest.xml
           
-          # كتابة ملف التجميع مع توحيد المعرفات البرمجية لتتطابق مع أكواد الكاميرا الأصلية (org.codeaurora.snapcam)
+          # تم إضافة خيار aaptOptions للسماح بالمعرفات الخارجية وتخطي أخطاء preference.xml
           echo "Writing clean build.gradle layout..."
-          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
+          echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    namespace \"org.codeaurora.snapcam\"\n    \n    defaultConfig {\n        applicationId \"org.codeaurora.snapcam\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    \n    aaptOptions {\n        additionalParameters '--allow-reserved-package-id', '--package-id', '0x7f'\n    }\n    \n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
 
           echo "rootProject.name = 'SnapCamera'" > settings.gradle
 
