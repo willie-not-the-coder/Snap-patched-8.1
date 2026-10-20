@@ -1,4 +1,4 @@
-name: Build Snapdragon Camera
+name: Build Snapdragon Camera from ZIP
 on: [push, workflow_dispatch]
 
 jobs:
@@ -17,26 +17,34 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Locate and Build Project
+      - name: Unzip and Build Project
         run: |
-          # البحث عن المجلد الذي يحتوي على كود الكاميرا والملفات المرفوعة
+          # 1. البحث عن أي ملف مضغوط في المستودع وفكه
+          ZIP_FILE=$(find . -name "*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found, compiling standard tree..."
+          else
+            echo "Found ZIP file: $ZIP_FILE. Unzipping..."
+            unzip -o "$ZIP_FILE" -d extracted_project
+            cd extracted_project
+          fi
+
+          # 2. البحث عن المجلد الداخلي الذي يحتوي على الكود البرمجي
           TARGET_DIR=$(find . -name "AndroidManifest.xml" -exec dirname {} \;)
-          echo "Found project directory at: $TARGET_DIR"
-          
-          # الانتقال إلى المجلد وتشغيل أداة البناء
+          echo "Target directory is: $TARGET_DIR"
           cd "$TARGET_DIR"
-          
-          # التأكد من وجود ملفات التجميع أو إنشائها تلقائياً إذا فُقدت
+
+          # 3. التأكد من وجود ملفات التجميع أو إنشائها تلقائياً
           if [ ! -f build.gradle ]; then
-            echo "Creating missing build.gradle configuration..."
+            echo "Creating missing build.gradle..."
             echo -e "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }\n}\nallprojects {\n    repositories { google(); mavenCentral() }\n}\napply plugin: 'com.android.application'\nandroid {\n    compileSdk 27\n    defaultConfig {\n        applicationId \"org.lineageos.snap\"\n        minSdk 21\n        targetSdk 27\n        versionCode 1\n        versionName \"1.0\"\n    }\n    sourceSets {\n        main {\n            manifest.srcFile 'AndroidManifest.xml'\n            java.srcDirs = ['src', 'src_pd', 'src_pd_gcam']\n            res.srcDirs = ['res']\n            assets.srcDirs = ['assets']\n        }\n    }\n}" > build.gradle
           fi
-          
+
           if [ ! -f settings.gradle ]; then
             echo "rootProject.name = 'SnapCamera'" > settings.gradle
           fi
-          
-          # بدء عملية البناء الفصيلية
+
+          # 4. بدء البناء
           gradle assembleDebug
 
       - name: Upload APK Artifact
