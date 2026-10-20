@@ -1,28 +1,3 @@
-لتعديل كود الكاميرا المصدري وتفعيل Camera API 2 (تغيير القيمة من false إلى true) ثم إعادة بناء ملف APK جديد تلقائياً عبر موقع GitHub، ستحتاج إلى تعديل الملف البرمجي المسؤول عن إعدادات الكاميرا الافتراضية.
-في كود كاميرا Snapdragon (Snap Camera) لـ LineageOS، يتم التحكم في تفعيل خيار الـ API 2 عادةً عبر كلاس يُدعى PersistUtil.java أو داخل ملف الموارد bools.xml.
-إليك الدليل الكامل خطوة بخطوة للقيام بذلك مباشرة من المتصفح:
-
-الخطوة 1: تعديل ملف الإعدادات داخل مستودع GitHub
-
-بما أنك رفعت الملفات في صيغة ملف مضغوط (.zip)، لا يمكنك تعديله مباشرة عبر واجهة موقع GitHub بدون فكه. الأسهل والأسرع هو جعل خادم GitHub Actions يقوم بعملية الاستبدال النصي البرمجي (Patching) تلقائياً أثناء البناء.
-1. افتح مستودعك على موقع GitHub واذهب إلى المسار التالي: .github/workflows/build.yml.
-2. اضغط على أيقونة القلم لتعديل الملف.
-3. قم بالتمرير إلى قسم Clean Layout Framework IDs and Stub Missing Resources (الخطوة المسؤول عن تعديل الملفات النصية).
-4. قم بإضافة الأسطر التالية في نهاية هذا القسم للبحث عن ملفات الإعدادات وتغيير القيمة برمجياً قبل التجميع:
-yaml
-          # تفعيل Camera API 2 برمجياً في ملفات الأكواد والموارد
-          echo "Patching source code to enable Camera API 2..."
-          find . -name "PersistUtil.java" -exec sed -i 's/PERSIST_CAMERA_HAL3_ENABLE, "0"/PERSIST_CAMERA_HAL3_ENABLE, "1"/g' {} \;
-          find . -name "PersistUtil.java" -exec sed -i 's/camera2.enable", false/camera2.enable", true/g' {} \;
-          
-          # فحص وتعديل ملف bools.xml أو config.xml إذا كانت القيمة مخزنة كمورد نصي
-          find . -name "*.xml" -exec sed -i 's/<bool name="config_camera2_enable">false<\/bool>/<bool name="config_camera2_enable">true<\/bool>/g' {} \;
-يُرجى استخدام الرمز البرمجي بحذر.
-
-🛠️ الكود الكامل والمحدث لملف build.yml
-
-لكي تضمن دمج الخطوة البرمجية بشكل صحيح دون أخطاء في التنسيق، انسخ الكود التالي بالكامل واستبدل محتويات ملف build.yml الحالي به:
-yaml
 name: Build Snapdragon Camera from ZIP
 on: [push, workflow_dispatch]
 
@@ -115,7 +90,7 @@ jobs:
                               print(f'Error processing {file_path}: {inner_e}')
           "
 
-      - name: Clean Layout Framework IDs, Stub Resources and Enable Camera API 2
+      - name: Clean Layout Framework IDs and Stub Missing Resources
         run: |
           cd extracted_project
           TARGET_DIR=$(find . -name "AndroidManifest.xml" ! -path "*/tests/*" -exec dirname {} \; | head -n 1)
@@ -145,17 +120,67 @@ jobs:
             echo -e "<resources>\n    <style name=\"AppTheme\" parent=\"android:Theme.Material.Light.DarkActionBar\" />\n</resources>" > res/values/styles.xml
           fi
 
-          # تفعيل Camera API 2 برمجياً في الكود والموارد المستخرجة تلقائياً
-          echo "Patching source code to enable Camera API 2..."
-          find . -name "PersistUtil.java" -exec sed -i 's/PERSIST_CAMERA_HAL3_ENABLE, "0"/PERSIST_CAMERA_HAL3_ENABLE, "1"/g' {} \;
-          find . -name "PersistUtil.java" -exec sed -i 's/camera2.enable", false/camera2.enable", true/g' {} \;
-          find . -name "*.xml" -exec sed -i 's/<bool name="config_camera2_enable">false<\/bool>/<bool name="config_camera2_enable">true<\/bool>/g' {} \;
-
           mkdir -p src/android/os
           echo -e "package android.os;\npublic class SystemProperties {\n    public static String get(String key) { return \"\"; }\n    public static String get(String key, String def) { return def; }\n    public static int getInt(String key, int def) { return def; }\n    public static boolean getBoolean(String key, boolean def) { return def; }\n}" > src/android/os/SystemProperties.java
 
           mkdir -p src/android/media
           echo -e "package android.media;\nimport java.util.ArrayList;\nimport java.util.List;\npublic class EncoderCapabilities {\n    public static class VideoEncoderCap {\n        public int mCodec;\n        public int mMinBitRate; public int mMaxBitRate;\n        public int mMinFrameRate; public int mMaxFrameRate;\n        public int mMinFrameWidth; public int mMaxFrameWidth;\n        public int mMinFrameHeight; public int mMaxFrameHeight;\n    }\n    public static List<VideoEncoderCap> getVideoEncoders() { return new ArrayList<>(); }\n}" > src/android/media/EncoderCapabilities.java
+
+      - name: Enable Camera API 2 (Auto-Switch to True)
+        run: |
+          python3 -c "
+          import os, re
+          print('Scanning project files to enable Camera API 2...')
+          for root, dirs, files in os.walk('extracted_project'):
+              for file in files:
+                  if file.endswith(('.xml', '.java', '.properties')):
+                      file_path = os.path.join(root, file)
+                      try:
+                          with open(file_path, 'r', encoding='utf-8') as f:
+                              content = f.read()
+                          
+                          modified = False
+                          
+                          # 1. Match boolean tags containing camera2 and false -> true
+                          new_content = re.sub(
+                              r'(<bool\s+[^>]*name=[\"\'][^\"\']*camera2[^\"\']*[\"\'][^>]*>\s*)false(\s*</bool>)',
+                              r'\1true\2',
+                              content,
+                              flags=re.IGNORECASE
+                          )
+                          if new_content != content:
+                              content = new_content
+                              modified = True
+                          
+                          # 2. Match preference defaultValue=false where key contains camera2
+                          new_content = re.sub(
+                              r'(<[^>]+\bkey=[\"\'][^\"\']*camera2[^\"\']*[\"\'][^>]*\bandroid:defaultValue=[\"\'])false([\"\'])',
+                              r'\1true\2',
+                              content,
+                              flags=re.IGNORECASE
+                          )
+                          if new_content != content:
+                              content = new_content
+                              modified = True
+                              
+                          # 3. Match general camera2 boolean assignments in code/configs
+                          new_content = re.sub(
+                              r'(\bcamera2\w*\b\s*=\s*)false\b',
+                              r'\1true',
+                              content,
+                              flags=re.IGNORECASE
+                          )
+                          if new_content != content:
+                              content = new_content
+                              modified = True
+                              
+                          if modified:
+                              with open(file_path, 'w', encoding='utf-8') as f:
+                                  f.write(content)
+                              print(f'Successfully enabled Camera API 2 in: {file_path}')
+                      except Exception as e:
+                        pass
+          "
 
       - name: Fix Manifest Package and Sync Gradle Layout
         run: |
@@ -179,16 +204,7 @@ jobs:
           gradle assembleDebug
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact
+        uses: actions/upload-artifact@v4
         with:
           name: Snap-Camera-APK
           path: "**/build/outputs/apk/**/*.apk"
-يُرجى استخدام الرمز البرمجي بحذر.
-5. اضغط على الزر الأخضر Commit changes لحفظ وتفعيل الملف.
-
-الخطوة 2: تشغيل البناء وتحميل الـ APK الجديد
-
-1. بمجرد حفظ ملف build.yml المحدث، سيقوم GitHub بتشغيل عملية بناء جديدة تلقائياً.
-2. اذهب إلى تبويب Actions في القائمة العلوية لمراقبة البناء السحابي.
-3. عند انتهاء العملية وظهور العلامة الخضراء، انزل لأسفل الصفحة إلى قسم Artifacts وحمل ملف الـ APK الناتجة الذي يحتوي الآن على إعدادات Camera API 2 مُفعلة افتراضياً بكود التطبيق.
-قم بحفظ الملف ومراقبة التبويب، وأخبرني: هل اكتمل البناء السحابي الجديد بنجاح بدون مشاكل، وهل قمت بتحميل ملف الـ APK الجديد لتجربته؟
