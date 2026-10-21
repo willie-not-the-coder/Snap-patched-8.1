@@ -30,7 +30,7 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Robust Python Automation (V36A Patch Application, Strings Deduplication & Source Discovery)
+      - name: Robust Python Automation (V36B Patch Application, Strings Deduplication & Source Discovery)
         run: |
           python3 -c "
           import os, re
@@ -44,7 +44,7 @@ jobs:
           print(f'Working target directory: {target_dir}')
           os.chdir(target_dir)
 
-          # 1. Bulletproof Stateful Regex Deduplication for ALL strings.xml files
+          # 1. Bulletproof Stateful Regex Deduplication for ALL strings.xml files & App Name update
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file == 'strings.xml':
@@ -66,13 +66,15 @@ jobs:
                                 seen_names.add(name)
                             return full_tag
 
+                        pattern = re.compile(r'<[a-zA-Z0-9_-]+\b[^>]*\bname=[\"\'][^\"\']+[\"\'][^>]*(?:/>|>.*ようで?</[a-zA-Z0-9_-]+\s*>)', re.DOTALL)
+                        # Fallback simple regex block cleaner
                         pattern = re.compile(r'<[a-zA-Z0-9_-]+\b[^>]*\bname=[\"\'][^\"\']+[\"\'][^>]*(?:/>|>.*?</[a-zA-Z0-9_-]+\s*>)', re.DOTALL)
                         cleaned_content = pattern.sub(clean_tag, content)
 
-                        # Update app name to V36A Trace
+                        # Update app name to V36B Trace
                         cleaned_content = re.sub(
                             r'(<string\s+name=[\"\']app_name[\"\'][^>]*>)[^<]*(</string>)',
-                            r'\1Snap V36A Trace\2',
+                            r'\1Snap V36B Trace\2',
                             cleaned_content
                         )
 
@@ -81,7 +83,7 @@ jobs:
                       except Exception as e:
                         print(f'Warning: failed to process strings.xml at {path}: {e}')
 
-          # 2. Apply V36A config resource patches (Camera2=false, legacy open enabled)
+          # 2. Apply V36B config resource patches (Camera2=true, front_camera_open_legacy=false)
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file.endswith('.xml'):
@@ -91,28 +93,23 @@ jobs:
                               content = f.read()
                           
                           updated = content
-                          # V36A control: retain legacy Camera1 path
-                          updated = updated.replace(
-                              '<bool name=\"support_camera_api_v2\">true</bool>',
-                              '<bool name=\"support_camera_api_v2\">false</bool>'
-                          )
                           updated = updated.replace(
                               '<bool name=\"support_camera_api_v2\">false</bool>',
-                              '<bool name=\"support_camera_api_v2\">false</bool>'
+                              '<bool name=\"support_camera_api_v2\">true</bool>'
                           )
                           updated = updated.replace(
-                              '<bool name=\"back_camera_open_legacy\">false</bool>',
-                              '<bool name=\"back_camera_open_legacy\">true</bool>'
+                              '<bool name=\"front_camera_open_legacy\">true</bool>',
+                              '<bool name=\"front_camera_open_legacy\">false</bool>'
                           )
                           
                           if updated != content:
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write(updated)
-                              print(f'Patched config XML: {path}')
+                              print(f'Patched config XML for V36B: {path}')
                       except Exception:
                           pass
 
-          # 3. Patch CameraActivity.java and source files for V36A tracing & Camera1 baseline
+          # 3. Patch CameraActivity.java and source files for V36B tracing & Camera2 capture route
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file.endswith('.java'):
@@ -122,19 +119,20 @@ jobs:
                               content = f.read()
                           
                           updated = content
-                          # Force Camera1 baseline behavior for V36A
-                          updated = updated.replace('mCamera2enabled = mCamera2supported', 'mCamera2enabled = false')
-                          updated = updated.replace('mCamera2enabled = true', 'mCamera2enabled = false')
+                          # Force Camera2 client routing
+                          updated = updated.replace('mCamera2enabled = false', 'mCamera2enabled = mCamera2supported')
                           
-                          # Swap log tags from V35 to V36A
-                          updated = updated.replace('KINZIE_V35_', 'KINZIE_V36A_')
-                          updated = updated.replace('V35-route-and-buffer-diagnostic', 'V36A-camera1-baseline-trace')
-                          updated = updated.replace('logV35ImageLayout', 'logV36AImageLayout')
+                          # Swap log tags from V35/V36A to V36B
+                          updated = updated.replace('KINZIE_V35_', 'KINZIE_V36B_')
+                          updated = updated.replace('KINZIE_V36A_', 'KINZIE_V36B_')
+                          updated = updated.replace('V35-route-and-buffer-diagnostic', 'V36B-camera2-capture-trace')
+                          updated = updated.replace('logV35ImageLayout', 'logV36BImageLayout')
+                          updated = updated.replace('logV36AImageLayout', 'logV36BImageLayout')
 
                           if updated != content:
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write(updated)
-                              print(f'Patched Java source for V36A: {path}')
+                              print(f'Patched Java source for V36B: {path}')
                       except Exception as e:
                           print(f'Error patching {path}: {e}')
 
