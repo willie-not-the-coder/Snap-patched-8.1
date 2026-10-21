@@ -30,7 +30,7 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Robust Python Automation (Bulletproof Stateful Strings Deduplication, Camera2 & Source Discovery)
+      - name: Robust Python Automation (V36A Patch Application, Strings Deduplication & Source Discovery)
         run: |
           python3 -c "
           import os, re
@@ -69,12 +69,19 @@ jobs:
                         pattern = re.compile(r'<[a-zA-Z0-9_-]+\b[^>]*\bname=[\"\'][^\"\']+[\"\'][^>]*(?:/>|>.*?</[a-zA-Z0-9_-]+\s*>)', re.DOTALL)
                         cleaned_content = pattern.sub(clean_tag, content)
 
+                        # Update app name to V36A Trace
+                        cleaned_content = re.sub(
+                            r'(<string\s+name=[\"\']app_name[\"\'][^>]*>)[^<]*(</string>)',
+                            r'\1Snap V36A Trace\2',
+                            cleaned_content
+                        )
+
                         with open(path, 'w', encoding='utf-8') as f:
                             f.write(cleaned_content)
                       except Exception as e:
-                        print(f'Warning: failed to deduplicate {path}: {e}')
+                        print(f'Warning: failed to process strings.xml at {path}: {e}')
 
-          # 2. Enable Camera API 2 in XML configurations
+          # 2. Apply V36A config resource patches (Camera2=false, legacy open enabled)
           for root, dirs, files in os.walk('.'):
               for file in files:
                   if file.endswith('.xml'):
@@ -84,40 +91,70 @@ jobs:
                               content = f.read()
                           
                           updated = content
+                          # V36A control: retain legacy Camera1 path
                           updated = updated.replace(
-                              '<bool name=\"support_camera_api_v2\">false</bool>',
-                              '<bool name=\"support_camera_api_v2\">true</bool>'
+                              '<bool name=\"support_camera_api_v2\">true</bool>',
+                              '<bool name=\"support_camera_api_v2\">false</bool>'
                           )
                           updated = updated.replace(
-                              '<bool name=\"camera2_support\">false</bool>',
-                              '<bool name=\"camera2_support\">true</bool>'
+                              '<bool name=\"support_camera_api_v2\">false</bool>',
+                              '<bool name=\"support_camera_api_v2\">false</bool>'
+                          )
+                          updated = updated.replace(
+                              '<bool name=\"back_camera_open_legacy\">false</bool>',
+                              '<bool name=\"back_camera_open_legacy\">true</bool>'
                           )
                           
                           if updated != content:
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write(updated)
+                              print(f'Patched config XML: {path}')
                       except Exception:
                           pass
 
-          # 3. Patch CameraActivity.java to force Camera2 selection logic
+          # 3. Patch CameraActivity.java and source files for V36A tracing & Camera1 baseline
           for root, dirs, files in os.walk('.'):
               for file in files:
-                  if file == 'CameraActivity.java':
+                  if file.endswith('.java'):
                       path = os.path.join(root, file)
                       try:
                           with open(path, 'r', encoding='utf-8') as f:
                               content = f.read()
                           
                           updated = content
-                          updated = updated.replace('mCamera2enabled = false', 'mCamera2enabled = mCamera2supported')
+                          # Force Camera1 baseline behavior for V36A
+                          updated = updated.replace('mCamera2enabled = mCamera2supported', 'mCamera2enabled = false')
+                          updated = updated.replace('mCamera2enabled = true', 'mCamera2enabled = false')
                           
+                          # Swap log tags from V35 to V36A
+                          updated = updated.replace('KINZIE_V35_', 'KINZIE_V36A_')
+                          updated = updated.replace('V35-route-and-buffer-diagnostic', 'V36A-camera1-baseline-trace')
+                          updated = updated.replace('logV35ImageLayout', 'logV36AImageLayout')
+
                           if updated != content:
                               with open(path, 'w', encoding='utf-8') as f:
                                   f.write(updated)
+                              print(f'Patched Java source for V36A: {path}')
+                      except Exception as e:
+                          print(f'Error patching {path}: {e}')
+
+          # 4. Update version.mk build version to 006 if present
+          for root, dirs, files in os.walk('.'):
+              for file in files:
+                  if file == 'version.mk':
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, 'r', encoding='utf-8') as f:
+                              content = f.read()
+                          updated = content.replace('base_version_build := 005', 'base_version_build := 006')
+                          if updated != content:
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write(updated)
+                              print('Updated version.mk to version build 006')
                       except Exception:
                           pass
 
-          # 4. Dynamically discover all directories containing .java source files
+          # 5. Dynamically discover all directories containing .java source files
           java_dirs = set()
           for root, dirs, files in os.walk('.'):
               if any(f.endswith('.java') for f in files):
